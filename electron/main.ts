@@ -160,8 +160,8 @@ app.on("activate", () => {
   }
 });
 
-if (mainWindow) {
-  mainWindow.on("resize", () => {
+app.on("browser-window-created", (_event, window) => {
+  window.on("resize", () => {
     if (activeViewId && mainWindow) {
       const view = appViews.get(activeViewId);
       if (view) {
@@ -175,4 +175,4 @@ if (mainWindow) {
       }
     }
   });
-}
+});
