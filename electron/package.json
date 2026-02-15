@@ -5,6 +5,10 @@
   "main": "main.js",
   "author": "HUB",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rudy2shoes/Unified-Hub-2.git"
+  },
   "scripts": {
     "start": "tsc && electron .",
     "build": "tsc && electron-builder --publish never"
