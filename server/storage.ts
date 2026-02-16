@@ -1,10 +1,35 @@
-import { users, connectedApps, dashboardWidgets, appCategories, clientWorkspaces, clientWorkspaceApps, type User, type InsertUser, type ConnectedApp, type InsertConnectedApp, type DashboardWidget, type InsertDashboardWidget, type AppCategory, type InsertAppCategory, type ClientWorkspace, type InsertClientWorkspace, type ClientWorkspaceApp } from "@shared/schema";
-import { eq, and, asc, sql } from "drizzle-orm";
+import { users, connectedApps, dashboardWidgets, appCategories, clientWorkspaces, clientWorkspaceApps, chatConversations, chatMessages, type User, type InsertUser, type ConnectedApp, type InsertConnectedApp, type DashboardWidget, type InsertDashboardWidget, type AppCategory, type InsertAppCategory, type ClientWorkspace, type InsertClientWorkspace, type ClientWorkspaceApp, type ChatConversation, type ChatMessage } from "@shared/schema";
+import { eq, and, asc, desc, sql } from "drizzle-orm";
 import { db } from "./db";
-import { scrypt, randomBytes, timingSafeEqual } from "crypto";
+import { scrypt, randomBytes, timingSafeEqual, createCipheriv, createDecipheriv } from "crypto";
 import { promisify } from "util";
 
 const scryptAsync = promisify(scrypt);
+
+const ENCRYPTION_KEY = process.env.SESSION_SECRET || "hub-dev-only-secret-not-for-production";
+
+function encryptApiKey(plaintext: string): string {
+  const key = Buffer.alloc(32);
+  const keySource = Buffer.from(ENCRYPTION_KEY);
+  keySource.copy(key, 0, 0, Math.min(keySource.length, 32));
+  const iv = randomBytes(16);
+  const cipher = createCipheriv("aes-256-cbc", key, iv);
+  let encrypted = cipher.update(plaintext, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return iv.toString("hex") + ":" + encrypted;
+}
+
+function decryptApiKey(ciphertext: string): string {
+  const key = Buffer.alloc(32);
+  const keySource = Buffer.from(ENCRYPTION_KEY);
+  keySource.copy(key, 0, 0, Math.min(keySource.length, 32));
+  const [ivHex, encrypted] = ciphertext.split(":");
+  const iv = Buffer.from(ivHex, "hex");
+  const decipher = createDecipheriv("aes-256-cbc", key, iv);
+  let decrypted = decipher.update(encrypted, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
+}
 
 async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString("hex");
@@ -54,6 +79,18 @@ export interface IStorage {
   getSubscription(subscriptionId: string): Promise<any>;
   listProducts(): Promise<any[]>;
   listPrices(): Promise<any[]>;
+
+  updateAiSettings(userId: string, provider: string, apiKey: string): Promise<void>;
+  getAiSettings(userId: string): Promise<{ provider: string | null; hasKey: boolean }>;
+  getAiApiKey(userId: string): Promise<{ provider: string | null; apiKey: string | null }>;
+  clearAiSettings(userId: string): Promise<void>;
+
+  getChatConversations(userId: string): Promise<ChatConversation[]>;
+  createChatConversation(userId: string, title: string): Promise<ChatConversation>;
+  updateChatConversationTitle(id: string, userId: string, title: string): Promise<ChatConversation | undefined>;
+  deleteChatConversation(id: string, userId: string): Promise<void>;
+  getChatMessages(conversationId: string, userId: string): Promise<ChatMessage[]>;
+  addChatMessage(conversationId: string, userId: string, role: string, content: string): Promise<ChatMessage>;
 }
 
 class DatabaseStorage implements IStorage {
@@ -216,6 +253,62 @@ class DatabaseStorage implements IStorage {
 
   async listPrices(): Promise<any[]> {
     return [];
+  }
+
+  async updateAiSettings(userId: string, provider: string, apiKey: string): Promise<void> {
+    const encrypted = encryptApiKey(apiKey);
+    await db.update(users).set({ aiProvider: provider, aiApiKey: encrypted }).where(eq(users.id, userId));
+  }
+
+  async getAiSettings(userId: string): Promise<{ provider: string | null; hasKey: boolean }> {
+    const [user] = await db.select({ aiProvider: users.aiProvider, aiApiKey: users.aiApiKey }).from(users).where(eq(users.id, userId));
+    if (!user) return { provider: null, hasKey: false };
+    return { provider: user.aiProvider, hasKey: !!user.aiApiKey };
+  }
+
+  async getAiApiKey(userId: string): Promise<{ provider: string | null; apiKey: string | null }> {
+    const [user] = await db.select({ aiProvider: users.aiProvider, aiApiKey: users.aiApiKey }).from(users).where(eq(users.id, userId));
+    if (!user) return { provider: null, apiKey: null };
+    let decryptedKey: string | null = null;
+    if (user.aiApiKey) {
+      try { decryptedKey = decryptApiKey(user.aiApiKey); } catch { decryptedKey = null; }
+    }
+    return { provider: user.aiProvider, apiKey: decryptedKey };
+  }
+
+  async clearAiSettings(userId: string): Promise<void> {
+    await db.update(users).set({ aiProvider: null, aiApiKey: null }).where(eq(users.id, userId));
+  }
+
+  async getChatConversations(userId: string): Promise<ChatConversation[]> {
+    return db.select().from(chatConversations).where(eq(chatConversations.userId, userId)).orderBy(desc(chatConversations.createdAt));
+  }
+
+  async createChatConversation(userId: string, title: string): Promise<ChatConversation> {
+    const [conv] = await db.insert(chatConversations).values({ userId, title }).returning();
+    return conv;
+  }
+
+  async updateChatConversationTitle(id: string, userId: string, title: string): Promise<ChatConversation | undefined> {
+    const [conv] = await db.update(chatConversations).set({ title }).where(and(eq(chatConversations.id, id), eq(chatConversations.userId, userId))).returning();
+    return conv;
+  }
+
+  async deleteChatConversation(id: string, userId: string): Promise<void> {
+    await db.delete(chatConversations).where(and(eq(chatConversations.id, id), eq(chatConversations.userId, userId)));
+  }
+
+  async getChatMessages(conversationId: string, userId: string): Promise<ChatMessage[]> {
+    const [conv] = await db.select().from(chatConversations).where(and(eq(chatConversations.id, conversationId), eq(chatConversations.userId, userId)));
+    if (!conv) return [];
+    return db.select().from(chatMessages).where(eq(chatMessages.conversationId, conversationId)).orderBy(asc(chatMessages.createdAt));
+  }
+
+  async addChatMessage(conversationId: string, userId: string, role: string, content: string): Promise<ChatMessage> {
+    const [conv] = await db.select().from(chatConversations).where(and(eq(chatConversations.id, conversationId), eq(chatConversations.userId, userId)));
+    if (!conv) throw new Error("Conversation not found");
+    const [msg] = await db.insert(chatMessages).values({ conversationId, role, content }).returning();
+    return msg;
   }
 }
 

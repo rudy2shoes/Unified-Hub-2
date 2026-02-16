@@ -19,6 +19,7 @@ Preferred communication style: Simple, everyday language.
 - **Branding**: Dark theme with red accent (#EF4444), "hub." logo with red dot. Ultra-dark backgrounds (#0d0d0d, #080808).
 - **Agency Mode**: New "Agency" view toggle alongside Apps and Focus. Create client workspaces with custom names/colors, assign apps to each workspace, and launch apps in isolated contexts. Database tables: `client_workspaces`, `client_workspace_apps`. Full ownership-scoped access control on all workspace endpoints. Manage Apps view has search bar and category grouping (Finance, CRM, etc.) matching main dashboard style. Drag-and-drop reordering of workspace cards.
 - **Notification Badges**: App icons show red notification badges (count or dot) on the top-right corner. Users can right-click any app icon in the main Apps grid to set/clear badge counts (1, 3, 5, 10, or clear). Badges display across all views (sidebar, Focus favorites, Agency workspace dashboards). Data stored in `notificationCount` column on `connected_apps` table. PATCH /api/apps/:id sanitizes and caps badge count at 99.
+- **AI Chat Assistant**: Embedded AI chat sidebar accessible via floating sparkle button on dashboard. Users bring their own API key (Claude/Anthropic or OpenAI) — zero platform AI cost. Keys stored AES-256 encrypted in database. Streaming responses via SSE. Per-user conversations with full message history. Auto-titles conversations from first message. Settings panel to switch providers or remove key. Database tables: `chat_conversations`, `chat_messages`. User columns: `ai_provider`, `ai_api_key` (encrypted).
 
 ## System Architecture
 
@@ -102,6 +103,15 @@ All routes are prefixed with `/api/`:
 - `GET /api/widgets` — Get user's dashboard widget layout
 - `PUT /api/widgets` — Save user's dashboard widget layout
 - Stripe-related routes for checkout and webhooks
+- `GET /api/ai/settings` — Get AI provider settings (no key returned)
+- `PUT /api/ai/settings` — Save AI API key and provider (encrypted)
+- `DELETE /api/ai/settings` — Remove AI key
+- `GET /api/ai/conversations` — List user's chat conversations
+- `POST /api/ai/conversations` — Create new conversation
+- `PATCH /api/ai/conversations/:id` — Update conversation title
+- `DELETE /api/ai/conversations/:id` — Delete conversation
+- `GET /api/ai/conversations/:id/messages` — Get conversation messages
+- `POST /api/ai/chat` — Send message and stream AI response (SSE)
 
 ### Key Design Decisions
 

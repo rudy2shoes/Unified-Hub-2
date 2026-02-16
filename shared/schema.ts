@@ -13,6 +13,8 @@ export const users = pgTable("users", {
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   subscriptionStatus: text("subscription_status").default("inactive"),
+  aiProvider: text("ai_provider"),
+  aiApiKey: text("ai_api_key"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -44,6 +46,8 @@ export const insertUserSchema = createInsertSchema(users).omit({
   stripeCustomerId: true,
   stripeSubscriptionId: true,
   subscriptionStatus: true,
+  aiProvider: true,
+  aiApiKey: true,
   createdAt: true,
 });
 
@@ -107,3 +111,31 @@ export type InsertClientWorkspace = z.infer<typeof insertClientWorkspaceSchema>;
 export const insertClientWorkspaceAppSchema = createInsertSchema(clientWorkspaceApps).omit({ id: true });
 export type ClientWorkspaceApp = typeof clientWorkspaceApps.$inferSelect;
 export type InsertClientWorkspaceApp = z.infer<typeof insertClientWorkspaceAppSchema>;
+
+export const chatConversations = pgTable("chat_conversations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  title: text("title").notNull().default("New Chat"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const chatMessages = pgTable("chat_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  conversationId: varchar("conversation_id").notNull().references(() => chatConversations.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertChatConversationSchema = createInsertSchema(chatConversations).omit({ id: true, createdAt: true });
+export type ChatConversation = typeof chatConversations.$inferSelect;
+export type InsertChatConversation = z.infer<typeof insertChatConversationSchema>;
+
+export const insertChatMessageSchema = createInsertSchema(chatMessages).omit({ id: true, createdAt: true });
+export type ChatMessage = typeof chatMessages.$inferSelect;
+export type InsertChatMessage = z.infer<typeof insertChatMessageSchema>;
+
+export const aiSettingsSchema = z.object({
+  provider: z.enum(["anthropic", "openai"]),
+  apiKey: z.string().min(1),
+});

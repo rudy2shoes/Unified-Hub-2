@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation } from "wouter";
-import { Check, Shield, Zap, Globe, ArrowRight, Monitor, Apple, Download, Chrome } from "lucide-react";
+import { Check, Shield, Zap, Globe, ArrowRight, Monitor, Apple, Download, Chrome, Sparkles, Bot, Cpu } from "lucide-react";
 import hubLogo from "@assets/HUB_Logo_(1)_1770930042707.png";
 
 export default function LandingPage() {
@@ -24,7 +24,7 @@ export default function LandingPage() {
           <Link href="/features" className="hover:text-white transition-colors">Features</Link>
           <Link href="/security" className="hover:text-white transition-colors">Security</Link>
           <a href="#download" className="hover:text-white transition-colors">Download</a>
-          <Link href="/pricing" className="hover:text-white transition-colors">Pricing</Link>
+          <a href="#pricing" className="hover:text-white transition-colors">Pricing</a>
         </div>
         <div className="flex items-center gap-4">
           <Link href="/login">
@@ -176,6 +176,69 @@ export default function LandingPage() {
               </p>
             </div>
           </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.8 }}
+            className="pt-32"
+            id="pricing"
+          >
+            <div className="text-center mb-12">
+              <h2 className="text-3xl md:text-4xl font-display font-bold text-white mb-4">
+                Choose Your Power Level
+              </h2>
+              <p className="text-lg text-white/40 max-w-2xl mx-auto">
+                From free forever to a full AI-powered workforce. Scale as you grow.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <PricingCard
+                icon={Sparkles}
+                name="Free"
+                price="$0"
+                period="/forever"
+                description="Get started with the basics"
+                features={["Up to 10 connected apps", "Basic dashboard widgets", "Web app access", "Community support"]}
+                cta="Get Started Free"
+                highlight={false}
+                onCta={() => setLocation("/onboarding")}
+              />
+              <PricingCard
+                icon={Bot}
+                name="HUB Pro"
+                price="$25"
+                period="/month"
+                description="For professionals who need more"
+                badge="7-day free trial"
+                features={["Unlimited connected apps", "AI chat assistant", "Desktop app (Mac, Windows, Linux)", "Agency Mode for client workspaces", "Focus Mode with custom backgrounds", "Priority support"]}
+                cta="Start Free Trial"
+                highlight={true}
+                onCta={() => setLocation("/onboarding")}
+              />
+              <PricingCard
+                icon={Cpu}
+                name="HUB Agent"
+                price="$99"
+                period="/month"
+                description="Your 24/7 AI-powered workforce"
+                badge="Coming Soon"
+                features={["Everything in Pro", "Dedicated AI agent (runs 24/7)", "Autonomous task execution", "Auto-generate reports & insights", "Workflow automation across apps", "Custom agent training"]}
+                cta="Join Waitlist"
+                highlight={false}
+                comingSoon={true}
+                onCta={() => {}}
+              />
+            </div>
+
+            <div className="text-center mt-8">
+              <Link href="/pricing" className="text-sm text-white/40 hover:text-white/60 transition-colors inline-flex items-center gap-1">
+                View full plan comparison
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          </motion.div>
         </div>
       </main>
 
@@ -241,6 +304,66 @@ function FeatureCard({ icon: Icon, title, description }: { icon: any, title: str
       </div>
       <h3 className="text-xl font-display font-semibold text-white mb-2">{title}</h3>
       <p className="text-white/40 leading-relaxed">{description}</p>
+    </div>
+  );
+}
+
+function PricingCard({ icon: Icon, name, price, period, description, badge, features, cta, highlight, comingSoon, onCta }: {
+  icon: any; name: string; price: string; period: string; description: string; badge?: string; features: string[]; cta: string; highlight: boolean; comingSoon?: boolean; onCta: () => void;
+}) {
+  return (
+    <div className={`relative p-7 rounded-3xl border backdrop-blur-sm flex flex-col ${
+      highlight
+        ? "bg-white/[0.05] border-[#EF4444]/40 shadow-[0_0_60px_-15px_rgba(239,68,68,0.3)]"
+        : "bg-white/[0.03] border-white/5 hover:bg-white/[0.05] transition-colors"
+    }`} data-testid={`card-pricing-${name.toLowerCase().replace(/\s+/g, '-')}`}>
+      {highlight && (
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+          <span className="px-4 py-1 rounded-full bg-[#EF4444] text-white text-xs font-semibold shadow-lg shadow-red-500/30">
+            Most Popular
+          </span>
+        </div>
+      )}
+      <div className={`w-11 h-11 rounded-xl flex items-center justify-center mb-3 ${
+        highlight ? "bg-[#EF4444]/15 text-[#EF4444]" : "bg-white/5 text-white/60"
+      }`}>
+        <Icon className="h-5 w-5" />
+      </div>
+      <h3 className="text-xl font-display font-bold text-white mb-1">{name}</h3>
+      <p className="text-sm text-white/40 mb-3">{description}</p>
+      {badge && (
+        <span className={`inline-flex self-start items-center px-2.5 py-0.5 rounded-full text-xs font-medium mb-3 ${
+          comingSoon ? "bg-white/5 border border-white/10 text-white/50" : "bg-[#EF4444]/10 border border-[#EF4444]/20 text-[#EF4444]"
+        }`}>{badge}</span>
+      )}
+      <div className="flex items-baseline gap-1 mb-5">
+        <span className="text-4xl font-display font-bold text-white">{price}</span>
+        <span className="text-sm text-white/40">{period}</span>
+      </div>
+      <ul className="space-y-2.5 text-left mb-6 flex-1">
+        {features.map((f, i) => (
+          <li key={i} className="flex items-start gap-2.5">
+            <div className={`w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${highlight ? "bg-[#EF4444]/10" : "bg-white/5"}`}>
+              <Check className={`h-2.5 w-2.5 ${highlight ? "text-[#EF4444]" : "text-white/50"}`} />
+            </div>
+            <span className="text-white/60 text-sm">{f}</span>
+          </li>
+        ))}
+      </ul>
+      <Button
+        size="lg"
+        className={`w-full h-12 rounded-2xl font-medium ${
+          highlight
+            ? "bg-[#EF4444] hover:bg-[#DC2626] text-white shadow-lg shadow-red-500/20"
+            : "border-white/10 bg-white/5 hover:bg-white/10 text-white"
+        }`}
+        variant={highlight ? "default" : "outline"}
+        onClick={onCta}
+        data-testid={`button-plan-${name.toLowerCase().replace(/\s+/g, '-')}`}
+      >
+        {cta}
+        {!comingSoon && <ArrowRight className="ml-2 h-4 w-4" />}
+      </Button>
     </div>
   );
 }

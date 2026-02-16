@@ -3,7 +3,8 @@ import { TopBar } from "@/components/layout/TopBar";
 import { AddAppWizard } from "@/components/AddAppWizard";
 import { WidgetGrid } from "@/components/widgets/WidgetGrid";
 import { AppIcon } from "@/components/AppIcon";
-import { Loader2, LayoutGrid, Clock, Monitor, X, Building2 } from "lucide-react";
+import { ChatSidebar } from "@/components/ChatSidebar";
+import { Loader2, LayoutGrid, Clock, Monitor, X, Building2, Sparkles } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useEffect, useState } from "react";
@@ -20,6 +21,7 @@ export default function Dashboard() {
   const [viewMode, setViewMode] = useState<"apps" | "focus" | "agency">("apps");
   const [theme, setTheme] = useState(() => localStorage.getItem("hub_theme") || "dark");
   const [showDownloadBanner, setShowDownloadBanner] = useState(() => !localStorage.getItem("hub_dismiss_download"));
+  const [chatOpen, setChatOpen] = useState(false);
   const [launchToast, setLaunchToast] = useState<{ name: string; color: string } | null>(null);
   const [appsBg, setAppsBg] = useState<string | null>(() => localStorage.getItem("hub_apps_bg"));
   const [agencyBg, setAgencyBg] = useState<string | null>(() => localStorage.getItem("hub_agency_bg"));
@@ -278,6 +280,24 @@ export default function Dashboard() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <AnimatePresence>
+        {!chatOpen && (
+          <motion.button
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0, opacity: 0 }}
+            transition={{ type: "spring", damping: 20, stiffness: 300 }}
+            onClick={() => setChatOpen(true)}
+            className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-[#EF4444] hover:bg-[#DC2626] text-white shadow-lg shadow-[#EF4444]/25 flex items-center justify-center transition-colors"
+            data-testid="button-open-chat"
+          >
+            <Sparkles className="w-6 h-6" />
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      <ChatSidebar open={chatOpen} onClose={() => setChatOpen(false)} theme={theme} />
     </div>
   );
 }

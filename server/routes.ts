@@ -1,7 +1,8 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertUserSchema, loginSchema, insertConnectedAppSchema, insertAppCategorySchema, insertClientWorkspaceSchema } from "@shared/schema";
+import { insertUserSchema, loginSchema, insertConnectedAppSchema, insertAppCategorySchema, insertClientWorkspaceSchema, aiSettingsSchema } from "@shared/schema";
+import Anthropic from "@anthropic-ai/sdk";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import rateLimit from "express-rate-limit";
@@ -152,9 +153,9 @@ export async function registerRoutes(
         await storage.updateUserStripeInfo(user.id, { stripeCustomerId: customerId });
       }
 
-      const prices = await stripe.prices.list({ active: true, limit: 10 });
-      const proPrice = prices.data.find(p => p.recurring?.interval === "month");
-      if (!proPrice) return res.status(400).json({ message: "No active price found" });
+      const prices = await stripe.prices.list({ active: true, limit: 100 });
+      const proPrice = prices.data.find(p => p.recurring?.interval === "month" && p.unit_amount === 2500);
+      if (!proPrice) return res.status(400).json({ message: "No active $25/month price found. Please run seed-products." });
 
       const domains = process.env.REPLIT_DOMAINS?.split(",") || [];
       const baseUrl = domains.length > 0 ? `https://${domains[0]}` : "http://localhost:5000";
@@ -425,6 +426,178 @@ export async function registerRoutes(
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/ai/settings", requireAuth, async (req, res) => {
+    const settings = await storage.getAiSettings(req.session.userId!);
+    res.json(settings);
+  });
+
+  app.put("/api/ai/settings", requireAuth, async (req, res) => {
+    try {
+      const parsed = aiSettingsSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message });
+      await storage.updateAiSettings(req.session.userId!, parsed.data.provider, parsed.data.apiKey);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/ai/settings", requireAuth, async (req, res) => {
+    await storage.clearAiSettings(req.session.userId!);
+    res.json({ ok: true });
+  });
+
+  app.get("/api/ai/conversations", requireAuth, async (req, res) => {
+    const convos = await storage.getChatConversations(req.session.userId!);
+    res.json(convos);
+  });
+
+  app.post("/api/ai/conversations", requireAuth, async (req, res) => {
+    const title = typeof req.body.title === "string" ? req.body.title.slice(0, 100) : "New Chat";
+    const conv = await storage.createChatConversation(req.session.userId!, title);
+    res.status(201).json(conv);
+  });
+
+  app.patch("/api/ai/conversations/:id", requireAuth, async (req, res) => {
+    const title = typeof req.body.title === "string" ? req.body.title.slice(0, 100) : "";
+    if (!title) return res.status(400).json({ message: "Title required" });
+    const conv = await storage.updateChatConversationTitle(req.params.id, req.session.userId!, title);
+    if (!conv) return res.status(404).json({ message: "Conversation not found" });
+    res.json(conv);
+  });
+
+  app.delete("/api/ai/conversations/:id", requireAuth, async (req, res) => {
+    await storage.deleteChatConversation(req.params.id, req.session.userId!);
+    res.json({ ok: true });
+  });
+
+  app.get("/api/ai/conversations/:id/messages", requireAuth, async (req, res) => {
+    const messages = await storage.getChatMessages(req.params.id, req.session.userId!);
+    res.json(messages);
+  });
+
+  app.post("/api/ai/chat", requireAuth, async (req, res) => {
+    try {
+      const { conversationId, message } = req.body;
+      if (!conversationId || !message || typeof message !== "string") {
+        return res.status(400).json({ message: "conversationId and message required" });
+      }
+
+      const { provider, apiKey } = await storage.getAiApiKey(req.session.userId!);
+      if (!apiKey || !provider) {
+        return res.status(400).json({ message: "Please add your AI API key in settings first" });
+      }
+
+      await storage.addChatMessage(conversationId, req.session.userId!, "user", message);
+
+      const history = await storage.getChatMessages(conversationId, req.session.userId!);
+      const chatHistory = history.map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+      const systemPrompt = `You are HUB Assistant, an AI helper built into the HUB unified workspace platform. You help users manage their business apps, productivity, and workflows. Be concise, helpful, and friendly. Keep responses brief unless the user asks for detail.`;
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+
+      if (provider === "anthropic") {
+        const client = new Anthropic({ apiKey });
+        let fullResponse = "";
+
+        const stream = client.messages.stream({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 2048,
+          system: systemPrompt,
+          messages: chatHistory,
+        });
+
+        stream.on("text", (text) => {
+          fullResponse += text;
+          res.write(`data: ${JSON.stringify({ type: "text", text })}\n\n`);
+        });
+
+        stream.on("end", async () => {
+          await storage.addChatMessage(conversationId, req.session.userId!, "assistant", fullResponse);
+
+          if (chatHistory.length <= 1) {
+            const titleSnippet = message.slice(0, 50) + (message.length > 50 ? "..." : "");
+            await storage.updateChatConversationTitle(conversationId, req.session.userId!, titleSnippet);
+          }
+
+          res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+          res.end();
+        });
+
+        stream.on("error", (err) => {
+          res.write(`data: ${JSON.stringify({ type: "error", error: err.message })}\n\n`);
+          res.end();
+        });
+      } else if (provider === "openai") {
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model: "gpt-4o",
+            messages: [{ role: "system", content: systemPrompt }, ...chatHistory],
+            max_tokens: 2048,
+            stream: true,
+          }),
+        });
+
+        if (!response.ok) {
+          const err = await response.text();
+          res.write(`data: ${JSON.stringify({ type: "error", error: "OpenAI API error: " + err })}\n\n`);
+          res.end();
+          return;
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) { res.end(); return; }
+
+        const decoder = new TextDecoder();
+        let fullResponse = "";
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            if (line.startsWith("data: ") && line !== "data: [DONE]") {
+              try {
+                const data = JSON.parse(line.slice(6));
+                const text = data.choices?.[0]?.delta?.content;
+                if (text) {
+                  fullResponse += text;
+                  res.write(`data: ${JSON.stringify({ type: "text", text })}\n\n`);
+                }
+              } catch {}
+            }
+          }
+        }
+
+        await storage.addChatMessage(conversationId, req.session.userId!, "assistant", fullResponse);
+        if (chatHistory.length <= 1) {
+          const titleSnippet = message.slice(0, 50) + (message.length > 50 ? "..." : "");
+          await storage.updateChatConversationTitle(conversationId, req.session.userId!, titleSnippet);
+        }
+        res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+        res.end();
+      } else {
+        res.write(`data: ${JSON.stringify({ type: "error", error: "Unsupported provider" })}\n\n`);
+        res.end();
+      }
+    } catch (err: any) {
+      if (!res.headersSent) {
+        res.status(500).json({ message: err.message });
+      } else {
+        res.write(`data: ${JSON.stringify({ type: "error", error: err.message })}\n\n`);
+        res.end();
+      }
     }
   });
 
